@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WebRTC Video Stream</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        video {
+            width: 100%;
+            max-width: 800px;
+            border-radius: 4px;
+            margin: 20px 0;
+            background-color: #000;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        button[type="submit"] {
+            background-color: #4CAF50;
+            color: white;
+        }
+        button[type="submit"]:hover:not(:disabled) {
+            background-color: #45a049;
+        }
+        #stop {
+            background-color: #f44336;
+            color: white;
+            display: none;
+        }
+        #stop:hover {
+            background-color: #da190b;
+        }
+        #start {
+            background-color: #2196F3;
+            color: white;
+        }
+        #start:hover:not(:disabled) {
+            background-color: #0b7dda;
+        }
+        select {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        #errorMessage {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            display: none;
+        }
+        .upload-section {
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebRTC Video Stream</h1>
+        
+        <div class="upload-section">
+            <h3>Upload Video</h3>
+            <form id="uploadForm">
+                <input type="file" id="videoFile" accept="video/*" required>
+                <button type="submit">Upload</button>
+            </form>
+        </div>
+
+        <div>
+            <select id="videoSelect">
+                <option value="">Select a video file</option>
+                {% for file in video_files %}
+                <option value="{{ file }}">{{ file }}</option>
+                {% endfor %}
+            </select>
+            <div class="controls">
+                <button id="start" disabled>Start Stream</button>
+                <button id="stop">Stop Stream</button>
+            </div>
+        </div>
+
+        <div id="errorMessage"></div>
+        <video id="video" autoplay playsinline></video>
+    </div>
+
+    <script>
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            console.error('Error: ' + msg + '\nURL: ' + url + '\nLine: ' + lineNo + '\nColumn: ' + columnNo + '\nError object: ' + JSON.stringify(error));
+            return false;
+        };
+        
+        // Test if static files are accessible
+        fetch('/test-static')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Static file test:', data);
+            })
+            .catch(error => {
+                console.error('Static file test failed:', error);
+            });
+    </script>
+    
+    <script src="/static/js/client.js" onerror="console.error('Failed to load client.js')"></script>
+</body>
+</html>
