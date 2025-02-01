@@ -4,7 +4,15 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc import (
+    RTCPeerConnection,
+    RTCSessionDescription,
+    RTCConfiguration,
+    RTCIceServer,
+    RTCRtpSender,
+)
+from aiortc.mediastreams import MediaStreamTrack, MediaStreamError
+from aiortc.contrib.media import MediaPlayer
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -50,7 +58,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # Create FastAPI app with lifespan
 app = FastAPI(title="WebRTC Stream Server", lifespan=lifespan)
 
-# Enable CORS
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -183,8 +191,12 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
                 content={"error": f"Video file not found: {params.video_file}"},
             )
 
-        # Create peer connection
-        pc = RTCPeerConnection()
+        # Create peer connection with STUN server
+        pc = RTCPeerConnection(
+            configuration=RTCConfiguration(
+                iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")]
+            )
+        )
         pcs.add(pc)
 
         # Create unique ID for this connection
@@ -217,9 +229,14 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
             logger.info("Setting remote description...")
             await pc.setRemoteDescription(offer)
 
-            # Add video track with explicit direction
-            logger.info("Adding video track with direction...")
-            pc.addTransceiver(video, direction="sendonly")
+            # Add video track and get transceiver
+            video_sender = pc.addTrack(video)
+            transceiver = pc.getTransceivers()[0]
+
+            # Set codec preferences (H264, VP8)
+            capabilities = RTCRtpSender.getCapabilities("video")
+            preferences = [codec for codec in capabilities.codecs if codec.name in ["H264", "VP8"]]
+            transceiver.setCodecPreferences(preferences)
 
             # Create answer
             logger.info("Creating answer...")
@@ -230,18 +247,6 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
             # Set local description
             logger.info("Setting local description...")
             await pc.setLocalDescription(answer)
-
-            # Log all transceivers for debugging
-            for transceiver in pc.getTransceivers():
-                logger.info(
-                    f"Transceiver - kind: {transceiver.kind}, "
-                    f"direction: {transceiver.direction}, "
-                    f"currentDirection: {transceiver.currentDirection}"
-                )
-
-            # Ensure we have a valid local description
-            if not pc.localDescription:
-                raise ValueError("No local description set")
 
             return JSONResponse(
                 content={

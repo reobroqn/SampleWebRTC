@@ -163,10 +163,8 @@ const app = (function() {
 
         // Create peer connection
         const config = {
-            sdpSemantics: 'unified-plan',
-            iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         };
-
         pc = new RTCPeerConnection(config);
         console.log('Created RTCPeerConnection');
 
@@ -194,6 +192,11 @@ const app = (function() {
                 reconnect();
             }
         });
+
+        // Add ICE candidate logging
+        pc.onicecandidate = (event) => {
+            console.log('ICE Candidate:', event.candidate);
+        };
 
         try {
             console.log('Starting negotiation');
@@ -225,18 +228,26 @@ const app = (function() {
                     video_file: videoSelect.value
                 }),
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
+                    'Content-Type': 'application/json'
                 },
                 method: 'POST'
+            }).catch(err => {
+                console.error('Network error:', err);
+                showError(`Network error: ${err.message}`);
+                throw err;
             });
 
-            const responseData = await response.json();
             if (!response.ok) {
-                throw new Error(responseData.error || 'Server error: ' + response.status);
+                const error = await response.json();
+                console.error('Server error:', error);
+                showError(`Server error: ${error.error}`);
+                throw new Error(error.error);
             }
 
-            // Handle server response
+            const responseData = await response.json();
+            if (!responseData.sdp || !responseData.type) {
+                throw new Error('Invalid server answer');
+            }
             await pc.setRemoteDescription(responseData);
             connectionId = responseData.connection_id;
             console.log('Negotiation completed, connection ID:', connectionId);
