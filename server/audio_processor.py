@@ -58,7 +58,6 @@ class TTSAudioTrack(MediaStreamTrack):
                 self._audio_container.close()
 
             logger.info("Opening audio file for streaming...")
-            decode_start = time.time()
             self._current_file = temp_path
             self._audio_container = av.open(str(temp_path))
             self._audio_stream = self._audio_container.streams.audio[0]
@@ -81,7 +80,7 @@ class TTSAudioTrack(MediaStreamTrack):
                 f"- Frame Processing: {queue_time:.2f}s\n"
                 f"- Total Frames: {frame_count}\n"
                 f"- Frames/Second: {frame_count/queue_time:.1f}\n"
-                f"- Total Time: {total_time:.2f}s"
+                f"- Total Time: {total_time:.2f}s",
             )
 
         except Exception as e:

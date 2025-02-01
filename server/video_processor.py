@@ -1,12 +1,11 @@
 import asyncio
-import av
 import fractions
 import logging
 import time
 from collections import deque
-from typing import Deque, Optional
 
-from aiortc.mediastreams import MediaStreamTrack, Frame, MediaStreamError
+import av
+from aiortc.mediastreams import Frame, MediaStreamError, MediaStreamTrack
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -29,7 +28,7 @@ class VideoFileTrack(MediaStreamTrack):
         self._frame_count = 0
         self._timestamp = 0
         self.running = True
-        self._frame_buffer: Deque[Frame] = deque(maxlen=FRAME_BUFFER_SIZE)
+        self._frame_buffer: deque[Frame] = deque(maxlen=FRAME_BUFFER_SIZE)
         self._buffer_task = None
         self._buffer_ready = asyncio.Event()
 
@@ -52,7 +51,7 @@ class VideoFileTrack(MediaStreamTrack):
         open_time = time.time() - start_time
         logger.info(
             f"Opened video in {open_time:.3f}s:\n"
-            f"- Path: {self.file_path}"
+            f"- Path: {self.file_path}",
         )
 
     async def _fill_buffer(self) -> None:
@@ -71,7 +70,7 @@ class VideoFileTrack(MediaStreamTrack):
             logger.error(f"Error filling buffer: {e}")
             self.stop()
 
-    async def _get_next_frame(self) -> Optional[Frame]:
+    async def _get_next_frame(self) -> Frame | None:
         """Get the next frame from the video, restarting when EOF is reached."""
         try:
             return next(self._file.decode(video=0))
@@ -105,7 +104,7 @@ class VideoFileTrack(MediaStreamTrack):
         # Add a small delay to maintain proper frame rate
         wait_time = max(
             0,
-            self._start + (self._frame_count * VIDEO_PTIME) - time.time()
+            self._start + (self._frame_count * VIDEO_PTIME) - time.time(),
         )
         if wait_time > 0:
             await asyncio.sleep(wait_time)

@@ -5,14 +5,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from aiortc import (
-    RTCPeerConnection,
-    RTCSessionDescription,
     RTCConfiguration,
     RTCIceServer,
+    RTCPeerConnection,
     RTCRtpSender,
+    RTCSessionDescription,
 )
-from aiortc.mediastreams import MediaStreamTrack, MediaStreamError
-from aiortc.contrib.media import MediaPlayer
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -194,8 +192,8 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
         # Create peer connection with STUN server
         pc = RTCPeerConnection(
             configuration=RTCConfiguration(
-                iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")]
-            )
+                iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")],
+            ),
         )
         pcs.add(pc)
 
@@ -205,7 +203,11 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
-            logger.info(f"Connection {connection_id} state changed to: {pc.connectionState}")
+            logger.info(
+                "Connection %d state changed to: %s",
+                connection_id,
+                pc.connectionState,
+            )
             if pc.connectionState == "failed":
                 await pc.close()
                 pcs.discard(pc)
@@ -223,20 +225,25 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
 
             # Create video track
             logger.info(f"Creating video track for file: {params.video_file}")
-            video = VideoFileTrack(str(video_path))
+            video_file_path = str(video_path)
+            video_track = VideoFileTrack(video_file_path)
+            video_track.kind = "video"
+            pc.addTrack(video_track)
 
             # Set remote description first
             logger.info("Setting remote description...")
             await pc.setRemoteDescription(offer)
 
-            # Add video track and get transceiver
-            video_sender = pc.addTrack(video)
+            # Get transceiver
             transceiver = pc.getTransceivers()[0]
 
-            # Set codec preferences (H264, VP8)
-            capabilities = RTCRtpSender.getCapabilities("video")
-            preferences = [codec for codec in capabilities.codecs if codec.name in ["H264", "VP8"]]
-            transceiver.setCodecPreferences(preferences)
+            # Set codec preferences
+            codecs = RTCRtpSender.getCapabilities("video").codecs
+            preferred_codecs = [
+                codec for codec in codecs 
+                if codec.mimeType.lower() in ["video/h264", "video/vp8"]
+            ]
+            transceiver.setCodecPreferences(preferred_codecs)
 
             # Create answer
             logger.info("Creating answer...")
