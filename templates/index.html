@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>WebRTC Video Stream</title>
+    <title>WebRTC Video and Audio Stream</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -23,6 +23,13 @@
             margin-bottom: 20px;
         }
         video {
+            width: 100%;
+            max-width: 800px;
+            border-radius: 4px;
+            margin: 20px 0;
+            background-color: #000;
+        }
+        audio {
             width: 100%;
             max-width: 800px;
             border-radius: 4px;
@@ -86,11 +93,34 @@
         input[type="file"] {
             margin: 10px 0;
         }
+        .tts-section {
+            margin: 20px 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .tts-controls {
+            margin-top: 10px;
+        }
+        #error-message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #ff4444;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+            z-index: 1000;
+            max-width: 300px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
     </style>
 </head>
 <body>
+    <div id="error-message"></div>
     <div class="container">
-        <h1>WebRTC Video Stream</h1>
+        <h1>WebRTC Video and Audio Stream</h1>
         
         <div class="upload-section">
             <h3>Upload Video</h3>
@@ -98,6 +128,14 @@
                 <input type="file" id="videoFile" accept="video/*" required>
                 <button type="submit">Upload</button>
             </form>
+        </div>
+
+        <div class="tts-section">
+            <h3>Text to Speech</h3>
+            <div class="tts-controls">
+                <textarea id="ttsText" placeholder="Enter text to speak..." rows="3" style="width: 100%; margin-bottom: 10px; padding: 8px; border-radius: 4px; border: 1px solid #ddd;"></textarea>
+                <button id="speakButton" onclick="speakText()" style="background-color: #4CAF50; color: white;">Speak Text</button>
+            </div>
         </div>
 
         <div>
@@ -114,6 +152,7 @@
         </div>
 
         <div id="errorMessage"></div>
+        <audio id="audio" autoplay playsinline></audio>
         <video id="video" autoplay playsinline></video>
     </div>
 
@@ -132,6 +171,45 @@
             .catch(error => {
                 console.error('Static file test failed:', error);
             });
+        
+        async function speakText() {
+            const text = document.getElementById('ttsText').value.trim();
+            if (!text) {
+                showError('Please enter some text to speak');
+                return;
+            }
+
+            try {
+                const response = await fetch('/tts', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ text: text })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to process text-to-speech');
+                }
+
+                // Clear the text input after successful submission
+                document.getElementById('ttsText').value = '';
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            
+            // Hide after 5 seconds
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
     </script>
     
     <script src="/static/js/client.js" onerror="console.error('Failed to load client.js')"></script>

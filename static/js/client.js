@@ -30,6 +30,15 @@ const app = (function() {
 
         uploadForm.addEventListener('submit', handleUpload);
 
+        // Handle TTS form submission
+        const ttsForm = document.getElementById('tts-form');
+        if (ttsForm) {
+            const ttsSubmit = document.getElementById('tts-submit');
+            if (ttsSubmit) {
+                ttsSubmit.addEventListener('click', handleTTS);
+            }
+        }
+
         // Handle video ended event
         const videoElement = document.getElementById('video');
         videoElement.addEventListener('ended', () => {
@@ -114,6 +123,43 @@ const app = (function() {
         }
     }
 
+    // Handle TTS form submission
+    async function handleTTS(e) {
+        e.preventDefault();
+        console.log('TTS form submitted');
+
+        const text = document.getElementById('tts-input').value.trim();
+        if (!text) {
+            showError('Please enter text to convert to speech');
+            return;
+        }
+
+        try {
+            console.log('Sending TTS request:', text);
+            const response = await fetch('/tts', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    text: text
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('TTS response:', result);
+            document.getElementById('tts-input').value = '';
+
+        } catch (e) {
+            console.error('TTS error:', e);
+            showError(e.toString());
+        }
+    }
+
     function showError(message, type = 'error') {
         console.log('Showing message:', message, 'Type:', type);
         const errorDiv = document.getElementById('errorMessage');
@@ -148,63 +194,54 @@ const app = (function() {
     }
 
     async function start() {
-        clearReconnectTimer();
+        console.log('Starting WebRTC connection...');
         
         if (pc) {
-            console.warn('Already connected, stopping previous connection...');
-            await stop();
-        }
-
-        const videoSelect = document.getElementById('videoSelect');
-        if (!videoSelect.value) {
-            showError('Please select a video file first');
+            console.warn('WebRTC connection already exists');
             return;
         }
 
-        // Create peer connection
-        const config = {
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        };
-        pc = new RTCPeerConnection(config);
-        console.log('Created RTCPeerConnection');
-
-        // Handle incoming tracks
-        pc.addEventListener('track', (evt) => {
-            console.log('Received track:', evt.track.kind);
-            if (evt.track.kind === 'video') {
-                const videoElement = document.getElementById('video');
-                videoElement.srcObject = evt.streams[0];
-                videoStream = evt.streams[0];
-                
-                // Monitor track status
-                evt.track.addEventListener('ended', () => {
-                    console.log('Video track ended, attempting to reconnect...');
-                    reconnect();
-                });
-            }
-        });
-
-        // Handle connection state changes
-        pc.addEventListener('connectionstatechange', () => {
-            console.log('Connection state:', pc.connectionState);
-            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                console.error('Connection failed or disconnected');
-                reconnect();
-            }
-        });
-
-        // Add ICE candidate logging
-        pc.onicecandidate = (event) => {
-            console.log('ICE Candidate:', event.candidate);
-        };
-
         try {
-            console.log('Starting negotiation');
+            const videoSelect = document.getElementById('videoSelect');
+            const selectedVideo = videoSelect.value;
             
-            // Create and set local description
-            const offer = await pc.createOffer({
-                offerToReceiveVideo: true,
+            if (!selectedVideo) {
+                showError('Please select a video file first');
+                return;
+            }
+
+            console.log('Selected video:', selectedVideo);
+
+            // Create peer connection
+            const config = {
+                sdpSemantics: 'unified-plan',
+                iceServers: [{urls: ['stun:stun.l.google.com:19302']}]
+            };
+
+            console.log('Creating RTCPeerConnection with config:', config);
+            pc = new RTCPeerConnection(config);
+
+            // Handle tracks
+            pc.addEventListener('track', (evt) => {
+                console.log('Received track:', evt.track.kind);
+                if (evt.track.kind === 'video') {
+                    const videoElement = document.getElementById('video');
+                    videoElement.srcObject = evt.streams[0];
+                    videoStream = evt.streams[0];
+                } else if (evt.track.kind === 'audio') {
+                    const audioElement = document.getElementById('audio');
+                    audioElement.srcObject = evt.streams[0];
+                }
             });
+
+            // Add transceivers before creating offer
+            console.log('Adding transceivers...');
+            pc.addTransceiver('video', { direction: 'recvonly' });
+            pc.addTransceiver('audio', { direction: 'recvonly' });
+
+            // Create and set local description
+            console.log('Creating offer...');
+            const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
 
             // Wait for ICE gathering to complete
@@ -212,54 +249,64 @@ const app = (function() {
                 if (pc.iceGatheringState === 'complete') {
                     resolve();
                 } else {
-                    pc.addEventListener('icegatheringstatechange', () => {
+                    const checkState = () => {
                         if (pc.iceGatheringState === 'complete') {
+                            pc.removeEventListener('icegatheringstatechange', checkState);
                             resolve();
                         }
-                    });
+                    };
+                    pc.addEventListener('icegatheringstatechange', checkState);
                 }
             });
 
-            // Send offer to server with selected video file
+            // Send offer to server
+            console.log('Sending offer to server...');
             const response = await fetch('/offer', {
-                body: JSON.stringify({
-                    sdp: pc.localDescription.sdp,
-                    type: pc.localDescription.type,
-                    video_file: videoSelect.value
-                }),
+                method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                method: 'POST'
-            }).catch(err => {
-                console.error('Network error:', err);
-                showError(`Network error: ${err.message}`);
-                throw err;
+                body: JSON.stringify({
+                    sdp: pc.localDescription.sdp,
+                    type: pc.localDescription.type,
+                    video_file: selectedVideo
+                })
             });
 
             if (!response.ok) {
-                const error = await response.json();
-                console.error('Server error:', error);
-                showError(`Server error: ${error.error}`);
-                throw new Error(error.error);
+                throw new Error(`Server error: ${response.status}`);
             }
 
-            const responseData = await response.json();
-            if (!responseData.sdp || !responseData.type) {
-                throw new Error('Invalid server answer');
-            }
-            await pc.setRemoteDescription(responseData);
-            connectionId = responseData.connection_id;
-            console.log('Negotiation completed, connection ID:', connectionId);
+            const answer = await response.json();
+            console.log('Received answer from server');
+
+            // Set remote description
+            await pc.setRemoteDescription(answer);
+            console.log('Set remote description, connection established');
 
             // Update UI
             document.getElementById('start').style.display = 'none';
             document.getElementById('stop').style.display = 'inline-block';
+            document.getElementById('videoSelect').disabled = true;
+            document.getElementById('uploadForm').style.display = 'none';
+
+            // Setup connection state change handler
+            pc.addEventListener('connectionstatechange', () => {
+                console.log('Connection state:', pc.connectionState);
+                if (pc.connectionState === 'failed') {
+                    console.log('Connection failed, attempting to reconnect...');
+                    stop(false);
+                    reconnect();
+                }
+            });
 
         } catch (e) {
-            console.error('Negotiation failed:', e);
-            await stop();
-            showError('Failed to start streaming: ' + e.message);
+            console.error('Error during connection setup:', e);
+            showError(e.toString());
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
         }
     }
 

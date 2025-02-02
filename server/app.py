@@ -1,26 +1,34 @@
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+import threading
 from pathlib import Path
+from typing import Set
+from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
 
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
     RTCPeerConnection,
-    RTCRtpSender,
     RTCSessionDescription,
+    RTCRtpSender,
 )
+
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from video_processor import VideoFileTrack
+
+from .media_container import MediaContainer
+from .webrtc import HumanPlayer
 
 # Setup logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Create paths
@@ -37,7 +45,37 @@ logger.info(f"Static files directory: {static_path}")
 logger.info(f"Templates directory: {template_path}")
 
 # Global set to keep track of peer connections
-pcs = set()
+pcs: Set[RTCPeerConnection] = set()
+media_containers: dict = {}
+
+# Initialize FastAPI app
+app = FastAPI(title="WebRTC Stream Server", debug=True)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Setup static files and templates
+app.mount("/static", StaticFiles(directory=str(static_path), html=True), name="static")
+templates = Jinja2Templates(directory=str(template_path))
+
+# Define request models
+class OfferModel(BaseModel):
+    """Model for WebRTC offer data."""
+
+    sdp: str
+    type: str
+    video_file: str
+
+class TTSRequest(BaseModel):
+    """Model for TTS request data."""
+
+    text: str
 
 
 @asynccontextmanager
@@ -54,28 +92,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 # Create FastAPI app with lifespan
-app = FastAPI(title="WebRTC Stream Server", lifespan=lifespan)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Serve static files
-app.mount("/static", StaticFiles(directory=str(static_path), html=True), name="static")
-templates = Jinja2Templates(directory=str(template_path))
-
-
-class OfferModel(BaseModel):
-    """Model for WebRTC offer data."""
-
-    sdp: str
-    type: str
-    video_file: str
+app.lifespan_context = lifespan
 
 
 @app.get("/test-static")
@@ -179,106 +196,87 @@ async def upload_video(file: UploadFile) -> JSONResponse:
 @app.post("/offer")
 async def handle_offer(params: OfferModel) -> JSONResponse:
     """Handle WebRTC offer."""
-    try:
-        # Validate video file
-        video_path = videos_path / params.video_file
-        if not video_path.exists():
-            logger.error(f"Video file not found: {params.video_file}")
-            return JSONResponse(
-                status_code=404,
-                content={"error": f"Video file not found: {params.video_file}"},
-            )
-
-        # Create peer connection with STUN server
-        pc = RTCPeerConnection(
-            configuration=RTCConfiguration(
-                iceServers=[RTCIceServer(urls="stun:stun.l.google.com:19302")],
-            ),
+    logger.debug("Received offer params: %s", params)
+    offer = RTCSessionDescription(sdp=params.sdp, type=params.type)
+    
+    # Create peer connection with STUN server
+    pc = RTCPeerConnection(
+        configuration=RTCConfiguration(
+            iceServers=[RTCIceServer(urls=["stun:stun.l.google.com:19302"])]
         )
-        pcs.add(pc)
+    )
+    pcs.add(pc)
+    logger.debug("Created new peer connection: %s", id(pc))
 
-        # Create unique ID for this connection
-        connection_id = str(id(pc))
-        logger.info(f"New connection established: {connection_id}")
-
-        @pc.on("connectionstatechange")
-        async def on_connectionstatechange() -> None:
-            logger.info(
-                "Connection %d state changed to: %s",
-                connection_id,
-                pc.connectionState,
-            )
-            if pc.connectionState == "failed":
-                await pc.close()
-                pcs.discard(pc)
-
-        try:
-            # Parse and validate the offer
-            try:
-                offer = RTCSessionDescription(sdp=params.sdp, type=params.type)
-            except Exception as e:
-                logger.error(f"Invalid session description: {e}")
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": f"Invalid session description: {str(e)}"},
-                )
-
-            # Create video track
-            logger.info(f"Creating video track for file: {params.video_file}")
-            video_file_path = str(video_path)
-            video_track = VideoFileTrack(video_file_path)
-            video_track.kind = "video"
-            pc.addTrack(video_track)
-
-            # Set remote description first
-            logger.info("Setting remote description...")
-            await pc.setRemoteDescription(offer)
-
-            # Get transceiver
-            transceiver = pc.getTransceivers()[0]
-
-            # Set codec preferences
-            codecs = RTCRtpSender.getCapabilities("video").codecs
-            preferred_codecs = [
-                codec for codec in codecs 
-                if codec.mimeType.lower() in ["video/h264", "video/vp8"]
-            ]
-            transceiver.setCodecPreferences(preferred_codecs)
-
-            # Create answer
-            logger.info("Creating answer...")
-            answer = await pc.createAnswer()
-            if not answer:
-                raise ValueError("Failed to create answer")
-
-            # Set local description
-            logger.info("Setting local description...")
-            await pc.setLocalDescription(answer)
-
-            return JSONResponse(
-                content={
-                    "sdp": pc.localDescription.sdp,
-                    "type": pc.localDescription.type,
-                    "connection_id": connection_id,
-                },
-            )
-
-        except Exception as e:
-            logger.error(f"Error during WebRTC setup: {e}")
-            # Clean up on error
+    @pc.on("connectionstatechange")
+    async def on_connectionstatechange():
+        logger.debug("Connection state changed to: %s", pc.connectionState)
+        if pc.connectionState == "failed":
+            logger.error("Connection failed, closing peer connection")
             await pc.close()
             pcs.discard(pc)
-            return JSONResponse(
-                status_code=500,
-                content={"error": f"WebRTC setup failed: {str(e)}"},
-            )
+        elif pc.connectionState == "closed":
+            logger.debug("Connection closed, removing from active connections")
+            pcs.discard(pc)
 
+    # Create media source
+    video_path = videos_path / params.video_file
+    if not video_path.exists():
+        logger.error("Video file not found: %s", params.video_file)
+        raise HTTPException(status_code=400, detail=f"Video file not found: {params.video_file}")
+
+    logger.debug("Creating media container for video: %s", video_path)
+    # Create media container and player
+    container = MediaContainer(str(video_path))
+    player = HumanPlayer(container)
+    media_containers[id(pc)] = container
+
+    # Add tracks first
+    logger.debug("Adding audio and video tracks to peer connection")
+    audio_sender = pc.addTrack(player.audio)
+    video_sender = pc.addTrack(player.video)
+
+    # Start rendering after tracks are added
+    logger.debug("Starting media container render")
+    container.render(threading.Event(), asyncio.get_event_loop(), player.audio, player.video)
+
+    # Set remote description
+    logger.debug("Setting remote description")
+    await pc.setRemoteDescription(offer)
+
+    # Create and set local description
+    logger.debug("Creating answer")
+    answer = await pc.createAnswer()
+    logger.debug("Setting local description")
+    await pc.setLocalDescription(answer)
+
+    logger.debug("Returning answer to client")
+    return JSONResponse(
+        content={
+            "sdp": pc.localDescription.sdp,
+            "type": pc.localDescription.type,
+        }
+    )
+
+
+@app.post("/tts")
+async def text_to_speech(request: TTSRequest):
+    """Handle text-to-speech request."""
+    try:
+        logger.debug("Received TTS request: %s", request.text)
+        # Find audio track
+        for pc in pcs:
+            container = media_containers.get(id(pc))
+            if container:
+                logger.debug("Found media container, sending TTS message")
+                container.put_msg_txt(request.text)
+                return JSONResponse(content={"status": "success"})
+        
+        logger.error("No active media container found")
+        raise HTTPException(status_code=400, detail="No active media container found")
     except Exception as e:
-        logger.error(f"Unexpected error in handle_offer: {e}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Server error: {str(e)}"},
-        )
+        logger.exception("TTS error")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 if __name__ == "__main__":
