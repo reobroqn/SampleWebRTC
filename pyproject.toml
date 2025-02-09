@@ -1,3 +1,9 @@
+[project]
+name = "samplewebrtc"
+version = "0.1.0"
+description = "Sample WebRTC Application"
+requires-python = ">=3.8"
+
 [tool.ruff]
 # Enable pycodestyle (`E`), Pyflakes (`F`), and import sorting (`I`)
 lint.select = ["E", "F", "I", "N", "UP", "ANN", "B", "A", "COM", "C4", "DTZ", "T10", "ERA", "RET", "SIM", "PTH"]
