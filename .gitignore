@@ -1,5 +1,5 @@
-.venv/
 .ruff_cache/
+.uv/           # UV cache directory
 
 # Python
 __pycache__/
