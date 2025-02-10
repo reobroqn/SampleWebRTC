@@ -15,8 +15,10 @@ VIDEO_CLOCK_RATE = 90000  # 90kHz clock rate
 VIDEO_PTIME = 1 / 30  # 30 fps
 FRAME_BUFFER_SIZE = 30  # Pre-buffer frames
 
+
 class VideoFileTrack(MediaStreamTrack):
     """A video track that reads from a file and streams it."""
+
     kind = "video"  # Important: explicitly set the track kind
 
     def __init__(self, file_path: str) -> None:
@@ -50,8 +52,7 @@ class VideoFileTrack(MediaStreamTrack):
         # Log video properties
         open_time = time.time() - start_time
         logger.info(
-            f"Opened video in {open_time:.3f}s:\n"
-            f"- Path: {self.file_path}",
+            f"Opened video in {open_time:.3f}s:\n" f"- Path: {self.file_path}",
         )
 
     async def _fill_buffer(self) -> None:
@@ -90,17 +91,17 @@ class VideoFileTrack(MediaStreamTrack):
 
         # Wait for buffer to have frames
         await self._buffer_ready.wait()
-        
+
         if not self._frame_buffer:
             raise MediaStreamError("No frames available")
 
         frame = self._frame_buffer.popleft()
-        
+
         # Calculate pts based on frame count and maintain consistent timing
         self._frame_count += 1
         frame.pts = int(self._frame_count * VIDEO_PTIME * VIDEO_CLOCK_RATE)
         frame.time_base = fractions.Fraction(1, VIDEO_CLOCK_RATE)
-        
+
         # Add a small delay to maintain proper frame rate
         wait_time = max(
             0,
@@ -108,13 +109,13 @@ class VideoFileTrack(MediaStreamTrack):
         )
         if wait_time > 0:
             await asyncio.sleep(wait_time)
-        
+
         return frame
 
     def stop(self) -> None:
         """Stop the video track."""
         self.running = False
-        if hasattr(self, '_file'):
+        if hasattr(self, "_file"):
             self._file.close()
         super().stop()
 

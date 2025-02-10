@@ -46,7 +46,7 @@ class TTSAudioTrack(MediaStreamTrack):
             # Generate speech
             logger.info("Initializing TTS engine...")
             communicate = edge_tts.Communicate(text, VOICE)
-            
+
             logger.info("Generating speech audio...")
             tts_start = time.time()
             await communicate.save(str(temp_path))

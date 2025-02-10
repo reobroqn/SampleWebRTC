@@ -106,7 +106,9 @@ async def serve_js() -> FileResponse:
     if not js_file.exists():
         raise HTTPException(status_code=404, detail="client.js not found")
     return FileResponse(
-        js_file, media_type="application/javascript", filename="client.js",
+        js_file,
+        media_type="application/javascript",
+        filename="client.js",
     )
 
 
@@ -240,7 +242,8 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
             # Set codec preferences
             codecs = RTCRtpSender.getCapabilities("video").codecs
             preferred_codecs = [
-                codec for codec in codecs 
+                codec
+                for codec in codecs
                 if codec.mimeType.lower() in ["video/h264", "video/vp8"]
             ]
             transceiver.setCodecPreferences(preferred_codecs)

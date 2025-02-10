@@ -16,6 +16,7 @@ build/
 .idea/
 
 # Environment
+.venv
 .env
 .env.*
 
