@@ -206,7 +206,7 @@ async def handle_offer(params: OfferModel) -> JSONResponse:
         @pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
             logger.info(
-                "Connection %d state changed to: %s",
+                "Connection %s state changed to: %s",
                 connection_id,
                 pc.connectionState,
             )
