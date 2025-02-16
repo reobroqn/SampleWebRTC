@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./videos:/app/videos
+    ports:
+      - "8080"
+    networks:
+      - webrtc_network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    networks:
+      - webrtc_network
+    restart: unless-stopped
+
+networks:
+  webrtc_network:
+    driver: bridge
