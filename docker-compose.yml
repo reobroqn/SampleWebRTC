@@ -5,24 +5,14 @@ services:
       dockerfile: Dockerfile
     volumes:
       - ./videos:/app/videos
-    ports:
-      - "8080"
-    networks:
-      - webrtc_network
+    network_mode: host
     restart: unless-stopped
 
   nginx:
     image: nginx:alpine
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-    ports:
-      - "80:80"
+    network_mode: host
     depends_on:
       - app
-    networks:
-      - webrtc_network
     restart: unless-stopped
-
-networks:
-  webrtc_network:
-    driver: bridge
